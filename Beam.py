@@ -1,0 +1,20 @@
+from sortedcontainers import SortedListWithKey
+
+class Beam:
+    def __init__(self, size, lower_better=True):
+        self.hypotheses = SortedListWithKey(key=lambda x: -x.score if lower_better else x.score)
+        self.size = size
+
+    def add(self, hyp, beam_constraints=[]):
+        if all(check(hyp) for check in beam_constraints):
+            self.hypotheses.add(hyp)
+            if len(self.hypotheses) > self.size:
+                assert len(self.hypotheses) == self.size + 1
+                del self.hypotheses[-1]  # Remove lowest-scoring hypothesis
+
+    def __len__(self):
+        return len(self.hypotheses)
+
+    def __iter__(self):
+        for hyp in self.hypotheses:
+            yield hyp
