@@ -1,3 +1,6 @@
+# THIS CODE WAS COPIED AND PASTED FROM THIS FILE FROM THE ORIGINAL PAPER
+# https://github.com/chrishokamp/constrained_decoding/blob/master/constrained_decoding/__init__.py
+
 from collections import OrderedDict
 from Beam import Beam
 

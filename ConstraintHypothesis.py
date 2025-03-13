@@ -1,3 +1,6 @@
+# THIS CODE WAS COPIED AND PASTED FROM THIS FILE FROM THE ORIGINAL PAPER
+# https://github.com/chrishokamp/constrained_decoding/blob/master/constrained_decoding/__init__.py
+
 import numpy as np
 
 # Utility Functions
