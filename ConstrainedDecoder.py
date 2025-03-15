@@ -5,7 +5,7 @@ from collections import OrderedDict
 from Beam import Beam
 
 class ConstrainedDecoder:
-    def __init__(self, hyp_generation_func, constraint_generation_func, continue_constraint_func, payload, beam_implementation=Beam):
+    def __init__(self, hyp_generation_func, constraint_generation_func, continue_constraint_func, payload=None, beam_implementation=Beam):
         self.hyp_generation_func = hyp_generation_func
         self.constraint_generation_func = constraint_generation_func
         self.continue_constraint_func = continue_constraint_func
