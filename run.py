@@ -14,19 +14,18 @@ from ConstrainedDecoder import ConstrainedDecoder
 from ConstrainedGPT2 import ConstrainedGPT2
 
 def decode_input_gpt2(decoder, tokenizer, prompt, constraints, length_factor=1.3):
-  # device = decoder.device
-  # input_values = tokenizer.encode(prompt, return_tensors="pt").to(device)
+  input_values = tokenizer.encode(prompt, return_tensors="pt").squeeze(0)
   # constraint_tokens = [tokenizer.encode(c, add_special_tokens=False) for c in constraints]
   # max_length = int(round(len(input_values[0]) * length_factor)) # max generation length
   coverage = init_coverage(constraints)
   payload = {
-        "input_values": prompt
+        "input_values": input_values#prompt
     }
 
   # Initialize beam search
   start_hyp = ConstraintHypothesis(
           token=None,
-          score=None,
+          score=-np.inf,
           coverage=coverage,
           constraints=constraints,
           payload=payload,

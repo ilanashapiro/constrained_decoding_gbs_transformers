@@ -38,29 +38,34 @@ class ConstrainedGPT2(GPT2LMHeadModel):
 
         # tokenized input seq
         input_ids = torch.tensor(hyp.payload['input_values']).unsqueeze(0).to(self.device)
-
-        # GPT2 forward pass
+        print(f"input_ids shape: {input_ids.shape}")  # Expected: (1, seq_length)
+        
         with torch.no_grad():
-            outputs = self.forward(input_ids) 
-            logits = outputs.logits[:, -1, :] # logits for the final token
+          outputs = self.forward(input_ids) 
+          logits = outputs.logits[:, -1, :]  # Extract last token logits
+          logprobs = F.log_softmax(logits, dim=-1).squeeze(0).cpu().numpy()
 
-        log_probs = F.log_softmax(logits, dim=-1).squeeze(0).cpu().numpy()
-
-        # Get top n_best tokens
-        n_best_outputs = np.argsort(log_probs)[-n_best:][::-1]
-        chosen_costs = log_probs[n_best_outputs]
+        n_best_outputs = np.argsort(-logprobs.flatten())[:n_best]  # Negative sign to get top log-probs
+        chosen_costs = logprobs.flatten()[n_best_outputs]
 
         new_hyps = []
         for hyp_idx in range(n_best):
             new_token_id = int(n_best_outputs[hyp_idx])
+            print("NEW TOKEN ID", new_token_id, "VOCAB SIZE", self.tokenizer.vocab_size)
             new_token = self.tokenizer.decode([new_token_id])
 
-            # Update payload with new token
+            # **Explicitly update input sequence** (GPT-2 requires full sequence context)
             new_payload = copy.deepcopy(hyp.payload)
-            new_payload['input_values'].append(new_token_id)
+            new_payload['input_values'] = torch.cat((new_payload['input_values'], torch.tensor([new_token_id])), dim=0)
 
-            next_score = (hyp.score + chosen_costs[hyp_idx]) if hyp.score is not None else chosen_costs[hyp_idx]
+            # Compute the new hypothesis score
+            if hyp.score != -np.inf:
+                next_score = hyp.score + chosen_costs[hyp_idx]
+            else:
+                # hyp.score is -np.inf for the start hyp
+                next_score = chosen_costs[hyp_idx]
 
+            # Create a new hypothesis
             new_hyp = ConstraintHypothesis(
                 token=new_token,
                 score=next_score,
@@ -99,12 +104,6 @@ class ConstrainedGPT2(GPT2LMHeadModel):
             constraint_token_id = hyp.constraints[idx][0]  # 1st token of constraint
             constraint_token = self.tokenizer.decode([constraint_token_id])  # convert ID to token
 
-            # append constraint token to input seq
-            new_input_values = hyp.payload['input_values'] + [constraint_token_id]
-
-            new_payload = copy.deepcopy(hyp.payload)
-            new_payload['input_values'] = new_input_values  # update input seq
-
             if hyp.score is not None:
                 next_score = hyp.score + log_probs[constraint_token_id]
             else:
@@ -121,7 +120,7 @@ class ConstrainedGPT2(GPT2LMHeadModel):
                 score=next_score,
                 coverage=coverage,
                 constraints=hyp.constraints,
-                payload=new_payload,
+                payload=copy.deepcopy(hyp.payload),
                 backpointer=hyp,
                 constraint_index=(idx, 0),
                 unfinished_constraint=unfinished_constraint
@@ -147,7 +146,6 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         continued_constraint_token = self.tokenizer.decode([continued_constraint_token_id])
 
         new_input_values = hyp.payload['input_values'] + [continued_constraint_token_id] # append constraint token to input seq
-
         input_ids = torch.tensor(new_input_values).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
@@ -167,15 +165,12 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         # see if there's more tokens in the constraint
         unfinished_constraint = constraint_tok_index + 1 < len(hyp.constraints[constraint_row_index])
 
-        new_payload = copy.deepcopy(hyp.payload)
-        new_payload['input_values'] = new_input_values
-
         new_hyp = ConstraintHypothesis(
             token=continued_constraint_token,
             score=next_score,
             coverage=coverage,
             constraints=hyp.constraints,
-            payload=new_payload,
+            payload=copy.deepcopy(hyp.payload),
             backpointer=hyp,
             constraint_index=constraint_index,
             unfinished_constraint=unfinished_constraint
