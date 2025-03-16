@@ -22,6 +22,7 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         """
         Generates `n_best` next-token hypotheses using GPT-2 with constraint-aware beam search.
         """
+        print("GENERATE")
 
         # if EOS token is generated, continue only with the same hypothesis
         if hyp.token == self.eos_token:
@@ -38,7 +39,6 @@ class ConstrainedGPT2(GPT2LMHeadModel):
 
         # tokenized input seq
         input_ids = torch.tensor(hyp.payload['input_values']).unsqueeze(0).to(self.device)
-        print(f"input_ids shape: {input_ids.shape}")  # Expected: (1, seq_length)
         
         with torch.no_grad():
           outputs = self.forward(input_ids) 
@@ -51,7 +51,6 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         new_hyps = []
         for hyp_idx in range(n_best):
             new_token_id = int(n_best_outputs[hyp_idx])
-            print("NEW TOKEN ID", new_token_id, "VOCAB SIZE", self.tokenizer.vocab_size)
             new_token = self.tokenizer.decode([new_token_id])
 
             # **Explicitly update input sequence** (GPT-2 requires full sequence context)
@@ -85,6 +84,7 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         """
         Generates constrained hypotheses by enforcing constraints that have not yet been covered.
         """
+        print("GENERATE CONSTRAINED")
 
         assert not hyp.unfinished_constraint, "hyp must not be part of an unfinished constraint"
 
@@ -104,6 +104,9 @@ class ConstrainedGPT2(GPT2LMHeadModel):
             constraint_token_id = hyp.constraints[idx][0]  # 1st token of constraint
             constraint_token = self.tokenizer.decode([constraint_token_id])  # convert ID to token
 
+            new_payload = copy.deepcopy(hyp.payload)
+            new_payload['input_values'] = torch.cat((new_payload['input_values'], torch.tensor([constraint_token_id])), dim=0)
+
             if hyp.score is not None:
                 next_score = hyp.score + log_probs[constraint_token_id]
             else:
@@ -120,7 +123,7 @@ class ConstrainedGPT2(GPT2LMHeadModel):
                 score=next_score,
                 coverage=coverage,
                 constraints=hyp.constraints,
-                payload=copy.deepcopy(hyp.payload),
+                payload=new_payload,
                 backpointer=hyp,
                 constraint_index=(idx, 0),
                 unfinished_constraint=unfinished_constraint
@@ -134,7 +137,7 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         """
         Continues an unfinished constraint by adding the next required token.
         """
-
+        print("CONTINUE CONSTRAINED")
         assert hyp.unfinished_constraint, "hyp must be part of an unfinished constraint"
 
         # det next token in the constraint seq
@@ -145,8 +148,11 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         continued_constraint_token_id = hyp.constraints[constraint_row_index][constraint_tok_index]
         continued_constraint_token = self.tokenizer.decode([continued_constraint_token_id])
 
-        new_input_values = hyp.payload['input_values'] + [continued_constraint_token_id] # append constraint token to input seq
+        new_input_values = torch.cat((hyp.payload['input_values'], torch.tensor([continued_constraint_token_id])), dim=0) # append constraint token to input seq
         input_ids = torch.tensor(new_input_values).unsqueeze(0).to(self.device)
+
+        new_payload = copy.deepcopy(hyp.payload)
+        new_payload['input_values'] = new_input_values
 
         with torch.no_grad():
             outputs = self.forward(input_ids)
@@ -170,7 +176,7 @@ class ConstrainedGPT2(GPT2LMHeadModel):
             score=next_score,
             coverage=coverage,
             constraints=hyp.constraints,
-            payload=copy.deepcopy(hyp.payload),
+            payload=new_payload,
             backpointer=hyp,
             constraint_index=constraint_index,
             unfinished_constraint=unfinished_constraint

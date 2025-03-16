@@ -47,7 +47,7 @@ decoder = ConstrainedDecoder(hyp_generation_func=model.generate,
                                  constraint_generation_func=model.generate_constrained,
                                  continue_constraint_func=model.continue_constrained,
                                  beam_implementation=Beam)
-constraints = ["science", "technology"]
+constraints = ["science is continuing", "technology"]
 prompt = "Tell me a story about what's to come in education."
 gen_text = decode_input_gpt2(decoder, tokenizer, prompt, constraints)
 
