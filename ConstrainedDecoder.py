@@ -2,7 +2,9 @@
 # https://github.com/chrishokamp/constrained_decoding/blob/master/constrained_decoding/__init__.py
 
 from collections import OrderedDict
+from re import search
 from Beam import Beam
+import sys
 
 class ConstrainedDecoder:
     def __init__(self, hyp_generation_func, constraint_generation_func, continue_constraint_func, payload=None, beam_implementation=Beam):
@@ -20,6 +22,7 @@ class ConstrainedDecoder:
         """
         constraints_remaining = True
         coverage = hyp.coverage
+        
         if sum(covered for cons in coverage for covered in cons) == sum(len(c) for c in coverage):
             constraints_remaining = False
         is_eos = False
@@ -27,39 +30,49 @@ class ConstrainedDecoder:
             is_eos = True
 
         if constraints_remaining and is_eos:
+            print("HYP DOES NOT COVER ALL CONSTRAINTS", hyp)
             return False
         return True
 
-    def search(self, start_hyp, constraints, max_hyp_len=50, beam_size=10):
+    def search(self, start_hyp, constraints, eos_token, max_hyp_len=50, beam_size=10):
         # the total number of constraint tokens determines the height of the grid
         grid_height = sum(len(c) for c in constraints)
 
         search_grid = OrderedDict()
-        search_grid[(0, 0)] = Beam(size=beam_size)
+        search_grid[(0, 0)] = Beam(size=beam_size, eos_token=eos_token)
         search_grid[(0, 0)].add(start_hyp)
 
         for i in range(1, max_hyp_len + 1):
             j_start = max(i - (max_hyp_len - grid_height), 0)
             j_end = min(i, grid_height) + 1
+
             for j in range(j_start, j_end):
                 # create the new beam
-                new_beam = self.beam_implementation(size=beam_size)
+                new_beam = self.beam_implementation(size=beam_size, eos_token=eos_token)
                 # generate hyps from (i-1, j-1), and (i-1, j), and add them to the beam
                 # cell to the left generates
                 if (i-1, j) in search_grid:
+                    # print("LEFT", i-1, j)
                     generation_hyps = self.get_generation_hyps(search_grid[(i-1, j)], beam_size)
                     for hyp in generation_hyps:
                         new_beam.add(hyp, beam_constraints=self.beam_constraints)
                 # lower left diagonal cell adds hyps from constraints
                 if (i-1, j-1) in search_grid:
+                    # print("DIAGONAL", i-1, j-1)
                     new_constraint_hyps = self.get_new_constraint_hyps(search_grid[(i-1, j-1)])
                     continued_constraint_hyps = self.get_continued_constraint_hyps(search_grid[(i-1, j-1)])
                     for hyp in new_constraint_hyps:
                         new_beam.add(hyp, beam_constraints=self.beam_constraints)
                     for hyp in continued_constraint_hyps:
                         new_beam.add(hyp, beam_constraints=self.beam_constraints)
-
+                
+                if len(new_beam.hypotheses) == 0 and (i-1, j-1) in search_grid: # we finished adding constraints but still have more to generate
+                    generation_hyps = self.get_generation_hyps(search_grid[(i-1, j-1)], beam_size)
+                    for hyp in generation_hyps:
+                        new_beam.add(hyp, beam_constraints=self.beam_constraints)
+                    
                 search_grid[(i,j)] = new_beam
+                # print("SAVING", i, j, new_beam.hypotheses)
 
         return search_grid
 
@@ -70,10 +83,17 @@ class ConstrainedDecoder:
           - the coverage vector of the parent hyp is not modified in each child
         """
 
-        continuations = (self.hyp_generation_func(hyp, beam_size) for hyp in beam if not hyp.unfinished_constraint)
+        if len(beam) == 0:
+            print("EMPTY BEAM FOR GENERATING")
+
+        continuations = [self.hyp_generation_func(hyp, beam_size) for hyp in beam if not hyp.unfinished_constraint]
 
         # flatten
-        return (new_hyp for hyp_list in continuations for new_hyp in hyp_list)
+        flat_continuations = []
+        for hyp_list in list(continuations):
+            for new_hyp in hyp_list:
+                flat_continuations.append(new_hyp)
+        return flat_continuations
 
     def get_new_constraint_hyps(self, beam):
         """return all hyps which start a new constraint from the hyps on this beam
@@ -82,11 +102,19 @@ class ConstrainedDecoder:
           - the coverage vector of the parent hyp is modified in each child
         """
 
-        continuations = (self.constraint_generation_func(hyp)
-                         for hyp in beam if not hyp.unfinished_constraint)
+        if len(beam) == 0:
+            print("EMPTY BEAM FOR NEW CONSTRAINTS")
+
+        continuations = [self.constraint_generation_func(hyp)
+                         for hyp in beam if not hyp.unfinished_constraint]
 
         # flatten
-        return (new_hyp for hyp_list in continuations for new_hyp in hyp_list)
+        flat_continuations = []
+        for hyp_list in list(continuations):
+            for new_hyp in hyp_list:
+                flat_continuations.append(new_hyp)
+
+        return flat_continuations
 
     def get_continued_constraint_hyps(self, beam):
         """return all hyps which continue the unfinished constraints on this beam
@@ -94,23 +122,27 @@ class ConstrainedDecoder:
         constraint_hyp_func maps `(hyp, constraints) --> forced_continuations`
           - the coverage vector of the parent hyp is modified in each child
         """
-        continuations = (self.continue_constraint_func(hyp)
-                         for hyp in beam if hyp.unfinished_constraint)
+        if len(beam) == 0:
+            print("EMPTY BEAM FOR CONT CONSTRAINTS")
+
+        continuations = [self.continue_constraint_func(hyp)
+                         for hyp in beam if hyp.unfinished_constraint]
 
         return continuations
     
     @staticmethod
     def best_n(search_grid, eos_token, n_best=1, cut_off_eos=True, return_model_scores=False, return_alignments=False,
                length_normalization=True, prefer_eos=False):
+        
         top_row = max(k[1] for k in search_grid.keys())
-
         if top_row > 0:
-            output_beams = [search_grid[k] for k in search_grid.keys() if k[1] == top_row]
+            get_output_beams_for_row = lambda row : [search_grid[k] for k in search_grid.keys() if k[1] == row]
+            output_beams = get_output_beams_for_row(top_row)
         else:
             # constraints seq is empty
             # Note this is a very hackish way to get the last beam
-            output_beams = [search_grid[search_grid.keys()[-1]]]
-
+            output_beams = [search_grid[list(search_grid.keys())[-1]]]
+            
         output_hyps = [h for beam in output_beams for h in beam]
 
         # if at least one hyp ends with eos, drop all the ones that don't (note this makes some big assumptions)

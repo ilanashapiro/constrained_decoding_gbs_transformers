@@ -22,7 +22,6 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         """
         Generates `n_best` next-token hypotheses using GPT-2 with constraint-aware beam search.
         """
-        print("GENERATE")
 
         # if EOS token is generated, continue only with the same hypothesis
         if hyp.token == self.eos_token:
@@ -43,10 +42,10 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         with torch.no_grad():
           outputs = self.forward(input_ids) 
           logits = outputs.logits[:, -1, :]  # Extract last token logits
-          logprobs = F.log_softmax(logits, dim=-1).squeeze(0).cpu().numpy()
+          log_probs = F.log_softmax(logits, dim=-1).squeeze(0).cpu().numpy()
 
-        n_best_outputs = np.argsort(-logprobs.flatten())[:n_best]  # Negative sign to get top log-probs
-        chosen_costs = logprobs.flatten()[n_best_outputs]
+        n_best_outputs = np.argsort(log_probs.flatten())[:n_best]
+        chosen_costs = log_probs.flatten()[n_best_outputs]
 
         new_hyps = []
         for hyp_idx in range(n_best):
@@ -58,10 +57,10 @@ class ConstrainedGPT2(GPT2LMHeadModel):
             new_payload['input_values'] = torch.cat((new_payload['input_values'], torch.tensor([new_token_id])), dim=0)
 
             # Compute the new hypothesis score
-            if hyp.score != -np.inf:
+            if hyp.score != np.inf:
                 next_score = hyp.score + chosen_costs[hyp_idx]
             else:
-                # hyp.score is -np.inf for the start hyp
+                # hyp.score is np.inf for the start hyp
                 next_score = chosen_costs[hyp_idx]
 
             # Create a new hypothesis
@@ -84,7 +83,6 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         """
         Generates constrained hypotheses by enforcing constraints that have not yet been covered.
         """
-        print("GENERATE CONSTRAINED")
 
         assert not hyp.unfinished_constraint, "hyp must not be part of an unfinished constraint"
 
@@ -107,7 +105,7 @@ class ConstrainedGPT2(GPT2LMHeadModel):
             new_payload = copy.deepcopy(hyp.payload)
             new_payload['input_values'] = torch.cat((new_payload['input_values'], torch.tensor([constraint_token_id])), dim=0)
 
-            if hyp.score is not None:
+            if hyp.score != np.inf:
                 next_score = hyp.score + log_probs[constraint_token_id]
             else:
                 next_score = log_probs[constraint_token_id]
@@ -137,7 +135,6 @@ class ConstrainedGPT2(GPT2LMHeadModel):
         """
         Continues an unfinished constraint by adding the next required token.
         """
-        print("CONTINUE CONSTRAINED")
         assert hyp.unfinished_constraint, "hyp must be part of an unfinished constraint"
 
         # det next token in the constraint seq
@@ -160,7 +157,7 @@ class ConstrainedGPT2(GPT2LMHeadModel):
 
         log_probs = F.log_softmax(logits, dim=-1).squeeze(0).cpu().numpy()
 
-        if hyp.score is not None:
+        if hyp.score != np.inf:
             next_score = hyp.score + log_probs[continued_constraint_token_id]
         else:
             next_score = log_probs[continued_constraint_token_id]

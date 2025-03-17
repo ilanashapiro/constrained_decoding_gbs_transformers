@@ -24,7 +24,7 @@ def decode_input_gpt2(decoder, tokenizer, prompt, constraints, length_factor=1.3
 
   start_hyp = ConstraintHypothesis(
           token=None,
-          score=-np.inf,
+          score=np.inf,
           coverage=coverage,
           constraints=constraint_tokens,
           payload=payload,
@@ -33,9 +33,11 @@ def decode_input_gpt2(decoder, tokenizer, prompt, constraints, length_factor=1.3
           unfinished_constraint=False
       )
 
-  search_grid = decoder.search(start_hyp=start_hyp, constraints=constraints,
-                                 max_hyp_len=int(round(len(prompt) * length_factor)),
-                                 beam_size=5)
+  search_grid = decoder.search(start_hyp=start_hyp, 
+                               constraints=constraints,
+                               eos_token=tokenizer.eos_token,
+                               max_hyp_len=int(round(len(prompt) * length_factor)),
+                               beam_size=5)
   best_output = decoder.best_n(search_grid, tokenizer.eos_token_id, n_best=1)
   return best_output
 
@@ -47,7 +49,7 @@ decoder = ConstrainedDecoder(hyp_generation_func=model.generate,
                                  constraint_generation_func=model.generate_constrained,
                                  continue_constraint_func=model.continue_constrained,
                                  beam_implementation=Beam)
-constraints = ["science is continuing", "technology"]
+constraints = ["science", "technology", "sunshine"]
 prompt = "Tell me a story about what's to come in education."
 gen_text = decode_input_gpt2(decoder, tokenizer, prompt, constraints)
 
