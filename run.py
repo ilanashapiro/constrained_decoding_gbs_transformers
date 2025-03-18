@@ -14,10 +14,9 @@ from ConstraintHypothesis import ConstraintHypothesis, init_coverage
 from ConstrainedDecoder import ConstrainedDecoder
 from ConstrainedGPT2 import ConstrainedGPT2
 
-def decode_input_gpt2(decoder, tokenizer, prompt, constraints, length_factor=1.3):
+def decode_input_gpt2(decoder, tokenizer, prompt, constraints):
   input_values = tokenizer.encode(prompt, return_tensors="pt")
   constraint_tokens = [tokenizer.encode(c, return_tensors="pt") for c in constraints]
-  print("INPUT CONSTRAINTS", constraint_tokens)
 
   coverage = init_coverage(constraint_tokens)
   payload = {
@@ -25,8 +24,8 @@ def decode_input_gpt2(decoder, tokenizer, prompt, constraints, length_factor=1.3
     }
 
   start_hyp = ConstraintHypothesis(
-          token=None,
-          score=np.inf,
+          token='',
+          score=-np.inf,
           coverage=coverage,
           constraints=constraint_tokens,
           payload=payload,
@@ -36,12 +35,12 @@ def decode_input_gpt2(decoder, tokenizer, prompt, constraints, length_factor=1.3
       )
 
   search_grid = decoder.search(start_hyp=start_hyp, 
-                               constraints=constraints,
+                               constraints=constraint_tokens,
                                eos_token=tokenizer.eos_token,
-                              #  max_hyp_len=int(round(len(prompt) * length_factor)),
+                               max_hyp_len=15,
                                beam_size=5)
-  best_output = decoder.best_n(search_grid, tokenizer.eos_token_id, n_best=1)
-  return best_output
+  best_output = decoder.best_n(search_grid, tokenizer.eos_token_id, n_best=1)[0]
+  return ''.join(best_output)
 
 tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 gpt2 = GPT2LMHeadModel.from_pretrained("gpt2")
@@ -50,8 +49,9 @@ decoder = ConstrainedDecoder(hyp_generation_func=model.generate_unconstrained,
                                  constraint_generation_func=model.generate_constrained,
                                  continue_constraint_func=model.continue_constrained,
                                  beam_implementation=Beam)
-constraints = ["science", "technology", "sunshine is here"]
+constraints = ["princess", "deer ran", "castle"]
 prompt = "Once upon a time"
 gen_text = decode_input_gpt2(decoder, tokenizer, prompt, constraints)
 
+print("Prompt:", prompt)
 print("Generated Text:", gen_text)

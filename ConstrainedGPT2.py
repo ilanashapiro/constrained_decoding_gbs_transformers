@@ -53,12 +53,14 @@ class ConstrainedGPT2:
             # **Explicitly update input sequence** (GPT-2 requires full sequence context)
             new_payload = copy.deepcopy(hyp.payload)
             new_payload['input_values'] = torch.cat([input_ids, new_token_id.unsqueeze(0)], dim=-1)
+
+            # print("NEW GEN TEXT", self.tokenizer.decode(new_payload['input_values'][0], skip_special_tokens=True))
             
             # Compute the new hypothesis score
-            if hyp.score != np.inf:
+            if hyp.score != -np.inf:
                 next_score = hyp.score + top_probs[0, hyp_idx]
             else:
-                # hyp.score is np.inf for the start hyp
+                # hyp.score is -np.inf for the start hyp
                 next_score = top_probs[0, hyp_idx]
 
             # Create a new hypothesis
@@ -87,22 +89,26 @@ class ConstrainedGPT2:
         new_constraint_hyps = []
         available_constraints = hyp.constraint_candidates()
 
+        # print("CURRENT INPUT", self.tokenizer.decode(hyp.payload['input_values'][0], skip_special_tokens=True), "AVAILABLE", available_constraints)
+
         input_ids = hyp.payload['input_values'].to(self.model.device)
 
         with torch.no_grad():
             outputs = self.model(input_ids) 
             logits = outputs.logits[:, -1, :]  # Extract last token logits
             log_probs = F.log_softmax(logits, dim=-1)
-
+    
         for idx in available_constraints:
             # Start a new constraint
             constraint_token_id = hyp.constraints[idx][0][0]  # 1st token of constraint
             constraint_token = self.tokenizer.decode(constraint_token_id, skip_special_tokens=True)  # convert ID to token
-
+ 
             new_payload = copy.deepcopy(hyp.payload)
             new_payload['input_values'] = torch.cat([input_ids, constraint_token_id.unsqueeze(0).unsqueeze(0)], dim=-1)
 
-            if hyp.score != np.inf:
+            # print("NEW CONSTRAINT RESULT", self.tokenizer.decode(new_payload['input_values'][0], skip_special_tokens=True))
+
+            if hyp.score != -np.inf:
                 next_score = hyp.score + log_probs[0, constraint_token_id]
             else:
                 next_score = log_probs[0, constraint_token_id]
@@ -135,24 +141,27 @@ class ConstrainedGPT2:
         assert hyp.unfinished_constraint, "hyp must be part of an unfinished constraint"
 
         # det next token in the constraint seq
-        constraint_row_index = hyp.constraint_index[0][0]
-        constraint_tok_index = hyp.constraint_index[0][1] + 1  # go to next token
+        constraint_row_index = hyp.constraint_index[0]
+        constraint_tok_index = hyp.constraint_index[1] + 1  # go to next token
         constraint_index = (constraint_row_index, constraint_tok_index)
 
-        continued_constraint_token_id = hyp.constraints[constraint_row_index][constraint_tok_index]
+        current_constraint_tokens = hyp.constraints[constraint_row_index][0] # hyp.constraints[constraint_row_index] is a nested tensor([[token1, token2...]]) so we index 0 into it to get the actual token list
+        continued_constraint_token_id = current_constraint_tokens[constraint_tok_index]
         continued_constraint_token = self.tokenizer.decode(continued_constraint_token_id, skip_special_tokens=True)
-
+        
         input_ids = hyp.payload['input_values'].to(self.model.device)
       
         new_payload = copy.deepcopy(hyp.payload)
-        new_payload['input_values'] = torch.cat([input_ids, continued_constraint_token_id.unsqueeze(0)], dim=-1)
+        new_payload['input_values'] = torch.cat([input_ids, continued_constraint_token_id.unsqueeze(0).unsqueeze(0)], dim=-1)
+
+        # print("CONTINUING CONSTRAINT RESULT", self.tokenizer.decode(new_payload['input_values'][0], skip_special_tokens=True))
 
         with torch.no_grad():
             outputs = self.model(input_ids)
             logits = outputs.logits[:, -1, :]
             log_probs = F.log_softmax(logits, dim=-1)
 
-        if hyp.score != np.inf:
+        if hyp.score != -np.inf:
             next_score = hyp.score + log_probs[0, continued_constraint_token_id]
         else:
             next_score = log_probs[0, continued_constraint_token_id]
@@ -161,7 +170,9 @@ class ConstrainedGPT2:
         coverage[constraint_row_index][constraint_tok_index] = 1 
 
         # see if there's more tokens in the constraint
-        unfinished_constraint = constraint_tok_index + 1 < len(hyp.constraints[constraint_row_index])
+        unfinished_constraint = constraint_tok_index + 1 < len(current_constraint_tokens)
+        # if unfinished_constraint:
+        #   print("CONSTRAINT IS UNFINISHED", self.tokenizer.decode(new_payload['input_values'][0], skip_special_tokens=True))
 
         new_hyp = ConstraintHypothesis(
             token=continued_constraint_token,

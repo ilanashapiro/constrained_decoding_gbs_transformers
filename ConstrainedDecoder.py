@@ -36,7 +36,7 @@ class ConstrainedDecoder:
 
     def search(self, start_hyp, constraints, eos_token, max_hyp_len=50, beam_size=10):
         # the total number of constraint tokens determines the height of the grid
-        grid_height = sum(len(c) for c in constraints)
+        grid_height = sum(len(c[0]) for c in constraints)
         
         search_grid = OrderedDict()
         search_grid[(0, 0)] = Beam(size=beam_size, eos_token=eos_token)
@@ -72,7 +72,7 @@ class ConstrainedDecoder:
                         new_beam.add(hyp, beam_constraints=self.beam_constraints)
                     
                 search_grid[(i,j)] = new_beam
-                # print("SAVING", i, j, new_beam.hypotheses)
+                print("SAVING", i, j, [h.sequence for h in new_beam.hypotheses])
 
         return search_grid
 
@@ -136,8 +136,7 @@ class ConstrainedDecoder:
         
         top_row = max(k[1] for k in search_grid.keys())
         if top_row > 0:
-            get_output_beams_for_row = lambda row : [search_grid[k] for k in search_grid.keys() if k[1] == row]
-            output_beams = get_output_beams_for_row(top_row)
+            output_beams = [search_grid[k] for k in search_grid.keys() if k[1] == top_row]
         else:
             # constraints seq is empty
             # Note this is a very hackish way to get the last beam
@@ -173,8 +172,8 @@ class ConstrainedDecoder:
         if cut_off_eos:
             output_seqs = [(seq[:int(t_len)], score, h) for (seq, score, h), t_len in zip(output_seqs, true_lens)]
 
-        # sort by score, lower is better (i.e. cost semantics)
-        output_seqs = sorted(output_seqs, key=lambda x: x[1])
+        # sort by score, HIGHER is better (i.e. cost semantics) -- original paper did lower better, but we are doing opposite
+        output_seqs = sorted(output_seqs, key=lambda x: x[1], reverse=True)
         if return_alignments:
             assert output_hyps[0].alignments is not None, 'Cannot return alignments if they are not part of hypothesis payloads'
             # we subtract 1 from true len index because the starting `None` token is not included in the `h.alignments`

@@ -2,12 +2,14 @@
 # https://github.com/chrishokamp/constrained_decoding/blob/master/constrained_decoding/__init__.py
 
 import numpy as np
+import sys
 
 # Utility Functions
 def init_coverage(constraints):
     coverage = []
     for c in constraints:
-        coverage.append(np.zeros(len(c), dtype='int16'))
+        coverage.append(np.zeros(len(c[0]), dtype='int16'))
+    print("COVERAGE", coverage)
     return coverage
 
 class ConstraintHypothesis:
@@ -33,7 +35,7 @@ class ConstraintHypothesis:
         self.score = score
 
         assert len(coverage) == len(constraints), 'constraints and coverage length must match'
-        assert all(len(cov) == len(cons) for cov, cons in zip(coverage, constraints)), \
+        assert all(len(cov) == len(cons[0]) for cov, cons in zip(coverage, constraints)), \
             'each coverage and constraint vector must match'
 
         self.coverage = coverage
