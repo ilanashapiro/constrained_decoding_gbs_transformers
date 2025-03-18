@@ -37,7 +37,7 @@ class ConstrainedDecoder:
     def search(self, start_hyp, constraints, eos_token, max_hyp_len=50, beam_size=10):
         # the total number of constraint tokens determines the height of the grid
         grid_height = sum(len(c) for c in constraints)
-
+        
         search_grid = OrderedDict()
         search_grid[(0, 0)] = Beam(size=beam_size, eos_token=eos_token)
         search_grid[(0, 0)].add(start_hyp)
