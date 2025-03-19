@@ -9,7 +9,6 @@ def init_coverage(constraints):
     coverage = []
     for c in constraints:
         coverage.append(np.zeros(len(c[0]), dtype='int16'))
-    print("COVERAGE", coverage)
     return coverage
 
 class ConstraintHypothesis:

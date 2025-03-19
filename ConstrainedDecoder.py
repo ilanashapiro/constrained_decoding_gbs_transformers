@@ -72,7 +72,8 @@ class ConstrainedDecoder:
                         new_beam.add(hyp, beam_constraints=self.beam_constraints)
                     
                 search_grid[(i,j)] = new_beam
-                print("SAVING", i, j, [h.sequence for h in new_beam.hypotheses])
+                # print("SAVING", i, j, [h.sequence for h in new_beam.hypotheses])
+            print("FINISHED TOKEN", i)
 
         return search_grid
 
